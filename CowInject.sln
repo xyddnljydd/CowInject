@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.29102.190
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CowInject", "CowInject\CowInject.vcxproj", "{A716CCE9-7592-426E-A732-D0D139C5851F}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Ycix64", "Ycix64\Ycix64.vcxproj", "{DA2EB622-5976-4BF9-9078-F4693DA43D63}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -41,6 +43,18 @@ Global
 		{A716CCE9-7592-426E-A732-D0D139C5851F}.Release|x86.ActiveCfg = Release|Win32
 		{A716CCE9-7592-426E-A732-D0D139C5851F}.Release|x86.Build.0 = Release|Win32
 		{A716CCE9-7592-426E-A732-D0D139C5851F}.Release|x86.Deploy.0 = Release|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Debug|ARM.ActiveCfg = Debug|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Debug|ARM64.ActiveCfg = Debug|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Debug|x64.ActiveCfg = Debug|x64
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Debug|x64.Build.0 = Debug|x64
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Debug|x86.ActiveCfg = Debug|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Debug|x86.Build.0 = Debug|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Release|ARM.ActiveCfg = Release|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Release|ARM64.ActiveCfg = Release|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Release|x64.ActiveCfg = Release|x64
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Release|x64.Build.0 = Release|x64
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Release|x86.ActiveCfg = Release|Win32
+		{DA2EB622-5976-4BF9-9078-F4693DA43D63}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
