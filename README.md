@@ -4,5 +4,5 @@
 2. Dll start in first export function
 3. Compile release vs2019
 4. Blog: wait.....
-5. When you stop driver the target process must be crash
+5. When you stop driver the target process maybe be crash
 6. it just a demo
