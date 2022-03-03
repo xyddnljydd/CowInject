@@ -760,7 +760,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pObj, PUNICODE_STRING pPath)
 {
 	UNREFERENCED_PARAMETER(pPath);
 	pObj->DriverUnload = DriverUnload;
-	DbgBreakPoint();
+	//DbgBreakPoint();
 	g_injectPid = 2096;
 	InjectProcessX64(g_injectPid);
 	fixTlsGetValue(g_injectPid);
